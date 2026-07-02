@@ -13,12 +13,13 @@
   "features": {
     "sshd": "latest",
     "ghcr.io/devcontainers/features/copilot-cli:1": {
-      "version": "prerelease"
+      "version": "launch"
     },
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
-
+      "version": "Launchpad"
+    },
   "customizations": {
     "vscode": {
       // Set *default* container specific settings.json values on container create.
@@ -57,7 +58,7 @@
   "forwardPorts": [4000],
 
   "portsAttributes": {
-    "4000": {
+    "5000": {
       "label": "Review"
     }
   },
@@ -71,8 +72,6 @@
   // Comment out connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root.
   "remoteUser": "node",
 
-  "hostRequirements": {
-    "memory": "16gb",
-    "cpus": "4"
+ "hostRequirements": 
   }
 }
