@@ -1,0 +1,280 @@
+name: Datadog Synthetics
+
+# Global workflow for Datadog Synthetics monitoring and testing
+# Runs synthetic tests across multiple regions including Japan (jp)
+
+on:
+  schedule:
+    # Run tests every 30 minutes
+    - cron: '0,30 * * * *'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      region:
+        description: 'Specific region to test (optional)'
+        required: false
+        type: string
+      test_locations:
+        description: 'Test locations (comma-separated)'
+        required: false
+        default: 'us,eu,jp'
+        type: string
+
+env:
+  DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+  DD_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
+  DD_SITE: datadoghq.com
+  SYNTHETICS_CONFIG_PATH: config/datadog-synthetics
+
+jobs:
+  ##########################
+  # Initialize and Validate
+  ##########################
+  validate-config:
+    name: Validate Synthetics Configuration
+    runs-on: ubuntu-latest
+    outputs:
+      config-version: ${{ steps.config-version.outputs.version }}
+      regions: ${{ steps.regions.outputs.list }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get config version
+        id: config-version
+        run: |
+          VERSION=$(cat ${{ env.SYNTHETICS_CONFIG_PATH }}/version.txt 2>/dev/null || echo "1.0.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Determine test regions
+        id: regions
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.region }}" ]; then
+            REGIONS="${{ inputs.region }}"
+          else
+            REGIONS="${{ inputs.test_locations || 'us,eu,jp' }}"
+          fi
+          echo "list=$REGIONS" >> $GITHUB_OUTPUT
+          echo "Testing regions: $REGIONS"
+
+      - name: Validate configuration files
+        run: |
+          if [ ! -d "${{ env.SYNTHETICS_CONFIG_PATH }}" ]; then
+            echo "❌ Configuration directory not found: ${{ env.SYNTHETICS_CONFIG_PATH }}"
+            exit 1
+          fi
+          echo "✅ Configuration directory validated"
+          ls -la ${{ env.SYNTHETICS_CONFIG_PATH }}/
+
+  ##########################
+  # Synthetics Test Suite
+  ##########################
+  run-synthetics-tests:
+    name: Run Synthetics Tests - ${{ matrix.region }}
+    needs: validate-config
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        region: ${{ fromJson(format('["{0}"]', needs.validate-config.outputs.regions)) }}
+        environment: [staging, production]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Datadog Synthetics Tests - ${{ matrix.region }}
+        env:
+          DD_SYNTHETICS_REGION: ${{ matrix.region }}
+          DD_ENV: ${{ matrix.environment }}
+          DD_SERVICE: docs-synthetics
+          DD_VERSION: ${{ needs.validate-config.outputs.config-version }}
+        run: |
+          echo "🧪 Running Synthetics tests for region: ${{ matrix.region }}"
+          echo "🌍 Environment: ${{ matrix.environment }}"
+          
+          # Execute test suite based on region
+          case "${{ matrix.region }}" in
+            us)
+              npm run synthetics:test:us -- --env ${{ matrix.environment }}
+              ;;
+            eu)
+              npm run synthetics:test:eu -- --env ${{ matrix.environment }}
+              ;;
+            jp)
+              npm run synthetics:test:jp -- --env ${{ matrix.environment }}
+              ;;
+            *)
+              echo "❌ Unknown region: ${{ matrix.region }}"
+              exit 1
+              ;;
+          esac
+
+      - name: Report results to Datadog
+        if: always()
+        env:
+          DD_REGION: ${{ matrix.region }}
+          DD_ENVIRONMENT: ${{ matrix.environment }}
+        run: |
+          npm run report:datadog:synthetics -- \
+            --region ${{ matrix.region }} \
+            --environment ${{ matrix.environment }} \
+            --version ${{ needs.validate-config.outputs.config-version }}
+
+  ##########################
+  # Japan-specific Tests
+  ##########################
+  japan-regional-tests:
+    name: Japan Regional Synthetics Tests
+    needs: validate-config
+    runs-on: ubuntu-latest
+    if: contains(needs.validate-config.outputs.regions, 'jp') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Japan-specific tests
+        env:
+          DD_SYNTHETICS_REGION: jp
+          DD_ENV: production
+          DD_SERVICE: docs-synthetics-jp
+          DD_VERSION: ${{ needs.validate-config.outputs.config-version }}
+          TZ: Asia/Tokyo
+        run: |
+          echo "🗾 Running Japan regional synthetics tests"
+          
+          # Japan-specific test suite
+          npm run synthetics:test:japan \
+            --region jp \
+            --timezone Asia/Tokyo \
+            --language ja
+
+      - name: Validate Japan endpoints
+        env:
+          DD_REGION: jp
+        run: |
+          echo "🔍 Validating Japan-specific endpoints"
+          npm run validate:endpoints:jp
+
+      - name: Send Japan test metrics to Datadog
+        if: always()
+        run: |
+          npm run report:datadog:japan-metrics \
+            --region jp \
+            --version ${{ needs.validate-config.outputs.config-version }}
+
+  ##########################
+  # Multi-region Aggregation
+  ##########################
+  aggregate-results:
+    name: Aggregate Test Results
+    needs: [validate-config, run-synthetics-tests, japan-regional-tests]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile regional results
+        run: |
+          echo "📊 Compiling results from all regions"
+          npm run synthetics:aggregate-results \
+            --config-version ${{ needs.validate-config.outputs.config-version }}
+
+      - name: Generate Datadog monitor updates
+        env:
+          DD_SERVICE: docs-synthetics
+        run: |
+          echo "📈 Generating Datadog monitor updates"
+          npm run datadog:update-monitors
+
+      - name: Create summary report
+        if: always()
+        run: |
+          echo "## Synthetics Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Config Version:** ${{ needs.validate-config.outputs.config-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Test Regions:** ${{ needs.validate-config.outputs.regions }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+
+  ##########################
+  # Failure Notification
+  ##########################
+  notify-failures:
+    name: Notify on Failure
+    needs: [run-synthetics-tests, japan-regional-tests]
+    runs-on: ubuntu-latest
+    if: failure()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Send Datadog event
+        run: |
+          curl -X POST https://api.${DD_SITE}/api/v1/events \
+            -H "DD-API-KEY: ${{ secrets.DATADOG_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "title": "Docs Synthetics Test Failure",
+              "text": "Synthetics tests failed in GitHub Actions workflow",
+              "priority": "normal",
+              "tags": ["workflow:datadog-synthetics", "status:failure"],
+              "alert_type": "error"
+            }'
+
+      - name: Send notification to team
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Datadog Synthetics Test Failure',
+              body: `
+                **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                
+                **Triggered by:** ${{ github.event_name }}
+                **Branch:** ${{ github.ref }}
+                
+                Please check the workflow logs for details.
+              `,
+              labels: ['bug', 'synthetics', 'datadog']
+            })
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
