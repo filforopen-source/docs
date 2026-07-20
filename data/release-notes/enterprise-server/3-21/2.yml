@@ -7,8 +7,6 @@ sections:
     - |
       **MEDIUM**: An attacker could create issues, issue comments, commit comments, and private vulnerability reports in public repositories they did not have write access to. This was possible by using a user-to-server token against endpoints that validated repository read access but did not validate the required write permission for those operations. GitHub has requested CVE ID [CVE-2026-14340](https://www.cve.org/cverecord?id=CVE-2026-14340) for this vulnerability, which was reported via the [GitHub Bug Bounty](https://bounty.github.com/) program.
     - |
-      **MEDIUM**: An attacker with site administrator privileges could extract arbitrary data from the instance's database, including user password hashes, by exploiting a blind SQL injection vulnerability in the `dependenciesPrefers` argument of the `dependencyGraphManifests` GraphQL field. This vulnerability affected instances with the dependency graph enabled and was reported via the GitHub Bug Bounty program.
-    - |
       **MEDIUM**: An attacker could gain unintended access to an organization's runner management by directing a user to authorize an OAuth app whose requested manage_runners:org scope was not displayed on the authorization consent screen. GitHub has requested CVE ID [CVE-2026-9106](https://www.cve.org/cverecord?id=CVE-2026-9106) for this vulnerability, which was reported via the [GitHub Bug Bounty](https://bounty.github.com/) program.
     - |
       GitHub has updated `dnsmasq` to fix the following vulnerabilities: CVE-2026-4891, CVE-2026-4890, CVE-2026-4892, CVE-2026-4893, CVE-2026-5172, CVE-2026-2291.
@@ -72,8 +70,6 @@ sections:
     - |
       When initializing a new GHES cluster, nodes with the `consul-server` role should be added to the cluster before adding additional nodes. Adding all nodes simultaneously creates a race condition between nomad server registration and nomad client registration.
     - |
-      When initializing a new GHES cluster, nodes with the `consul-server` role should be added to the cluster before adding additional nodes. Adding all nodes simultaneously creates a race condition between nomad server registration and nomad client registration.
-    - |
       In a cluster, the host running restore requires access the storage nodes via their private IPs.
     - |
       On an instance hosted on Azure, commenting on an issue via email meant the comment was not added to the issue.
@@ -87,8 +83,6 @@ sections:
       When applying an enterprise security configuration to all repositories (for example, enabling Secret Scanning or Code Scanning across all repositories), the system immediately enqueues enablement jobs for every organization in the enterprise simultaneously. For enterprises with a large number of repositories, this can result in significant system load and potential performance degradation. If you manage a large enterprise with many organizations and repositories, we recommend applying security configurations at the organization level rather than at the enterprise level in the UI. This allows you to enable security features incrementally and monitor system performance as you roll out changes.
     - |
       On instances with multiple Git storage nodes in a voting configuration, including cluster and geo-replication high availability topologies, upgrading may fail to correctly install Actions that ship with the new version. In some cases, previous versions of these Actions remain on the instance. To resolve this issue, run the following commands on the primary node: `ghe-config --unset 'app.actions.actions-repos-sha1sum'`, `ghe-config-apply`, and `/usr/local/share/enterprise/ghe-run-init-actions-graph`.
-    - |
-      Users attempting to clone repositories via HTTPS receive an "Internal Server Error" message, and the clone operation fails with a 500 error. This issue affects all deployment topologies including cluster, standalone, high availability, and geo-replication configurations.
   errata:
     - |
       A note about running the pre-upgrade stage outside the maintenance window has been added to the release notes. [Updated: 2026-06-30]
