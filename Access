@@ -1,0 +1,85 @@
+-- Change role for user / role steps
+use role accountadmin;
+
+-- Create a new role intended to monitor Snowflake usage. The name of the role is customizable.
+create role DATADOG;
+
+-- Grant privileges on the SNOWFLAKE database to the new role.
+grant imported privileges on database SNOWFLAKE to role DATADOG;
+                
+-- Grant usage to your default warehouse to the role DATADOG.
+grant usage on warehouse <WAREHOUSE> to role DATADOG;
+
+-- Grant the following ACCOUNT_USAGE views to the new role. Do this if you wish to collect Snowflake account usage logs and metrics.
+grant database role SNOWFLAKE.OBJECT_VIEWER to role DATADOG;
+grant database role SNOWFLAKE.USAGE_VIEWER to role DATADOG;
+grant database role SNOWFLAKE.GOVERNANCE_VIEWER to role DATADOG;
+grant database role SNOWFLAKE.SECURITY_VIEWER to role DATADOG;
+
+-- Grant ORGANIZATION_USAGE_VIEWER to the new role. Do this if you wish to collect Snowflake organization usage metrics.
+grant database role SNOWFLAKE.ORGANIZATION_USAGE_VIEWER to role DATADOG;
+
+-- Grant ORGANIZATION_BILLING_VIEWER to the new role. Do this if you wish to collect Snowflake cost data.
+grant database role SNOWFLAKE.ORGANIZATION_BILLING_VIEWER to role DATADOG;
+-- Grant usage on the database, schema, and table of the event table.
+grant usage on database <EVENT_TABLE_DATABASE> to role DATADOG;
+grant usage on schema <EVENT_TABLE_DATABASE>.<EVENT_TABLE_SCHEMA> to role DATADOG;
+grant select on table <EVENT_TABLE_DATABASE>.<EVENT_TABLE_SCHEMA>.<EVENT_TABLE_NAME> to role DATADOG;
+grant application role SNOWFLAKE.EVENTS_VIEWER to role DATADOG;
+grant application role SNOWFLAKE.EVENTS_ADMIN to role DATADOG;
+
+-- Grant usage on the database, schema, and table of your tables for metric collection of your custom queries.
+grant usage on database <CUSTOM_QUERY_DATABASE> to role DATADOG;
+grant usage on schema <CUSTOM_QUERY_DATABASE>.<CUSTOM_QUERY_SCHEMA> to role DATADOG;
+grant select on table <CUSTOM_QUERY_DATABASE>.<CUSTOM_QUERY_SCHEMA>.<CUSTOM_QUERY_TABLE> to role DATADOG;
+
+
+-- The following stored procedure iterates through each schema in a given database, then grants
+-- access to each table in a given schema. This stored procedure should be run for each database
+-- that you want to grant access to. Additionally, this procedure should be run each time a new
+-- schema is created.
+create or replace procedure grantFutureAccess(databaseName string, roleName string)
+  returns string not null
+  language javascript
+  as
+  $$
+  snowflake.execute({ sqlText: 'GRANT USAGE ON DATABASE "' + DATABASENAME + '" TO ROLE ' + ROLENAME + ';'});
+
+  var schemaResultSet = snowflake.execute({ sqlText: 'SELECT SCHEMA_NAME FROM ' + '"' + DATABASENAME + '"' + ".INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME != 'INFORMATION_SCHEMA';"});
+
+  var numberOfSchemasGranted = 0;
+  while (schemaResultSet.next()) {
+    numberOfSchemasGranted += 1;
+    var schemaAndRoleSuffix = ' in schema "' + DATABASENAME + '"."' +
+    schemaResultSet.getColumnValue('SCHEMA_NAME') + '" to role ' + ROLENAME + ';'
+
+    snowflake.execute({ sqlText: 'grant USAGE on schema "' + DATABASENAME + '"."' +
+    schemaResultSet.getColumnValue('SCHEMA_NAME') + '" to role ' + ROLENAME + ';'});
+    snowflake.execute({ sqlText: 'grant SELECT on all tables' + schemaAndRoleSuffix});
+    snowflake.execute({ sqlText: 'grant SELECT on all views' + schemaAndRoleSuffix});
+    snowflake.execute({ sqlText: 'grant SELECT on all external tables' + schemaAndRoleSuffix});
+    snowflake.execute({ sqlText: 'grant SELECT on all event tables' + schemaAndRoleSuffix});
+    snowflake.execute({ sqlText: 'grant SELECT on all dynamic tables' + schemaAndRoleSuffix});
+    snowflake.execute({ sqlText: 'grant SELECT on future tables' + schemaAndRoleSuffix});
+    snowflake.execute({ sqlText: 'grant SELECT on future views' + schemaAndRoleSuffix});
+    snowflake.execute({ sqlText: 'grant SELECT on future external tables' + schemaAndRoleSuffix});
+    snowflake.execute({ sqlText: 'grant SELECT on future event tables' + schemaAndRoleSuffix});
+    snowflake.execute({ sqlText: 'grant SELECT on future dynamic tables' + schemaAndRoleSuffix});
+  }
+
+  return 'Granted access to ' + numberOfSchemasGranted + ' schemas';
+  $$
+;
+
+-- Call the procedure for each database that you want to grant access to.
+call grantFutureAccess('<DATABASE_NAME>', 'DATADOG');
+
+-- Create a user.
+create user PM
+LOGIN_NAME = PM
+password = <PASSWORD>
+default_warehouse = <WAREHOUSE>
+default_role = DATADOG;
+
+-- Grant the monitor role to the user.
+grant role DATADOG to user PM
