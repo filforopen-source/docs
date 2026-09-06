@@ -1,8 +1,4 @@
----
-title: Configuring GitHub Copilot CLI
-shortTitle: Configure Copilot CLI
-intro: Configure trusted directories, tool access, and path and URL permissions for {% data variables.copilot.copilot_cli_short %}
-versions:
+
   feature: copilot
 contentType: how-tos
 category:
